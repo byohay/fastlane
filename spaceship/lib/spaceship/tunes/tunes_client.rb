@@ -544,6 +544,43 @@ module Spaceship
       handle_itc_response(r.body)
     end
 
+    def transform_to_raw_pricing_intervals(app_id = nil, purchase_id = nil, pricing_intervals = nil, subscription_price_target = nil)
+      intervals_array = []
+      if pricing_intervals
+        intervals_array = pricing_intervals.map do |interval|
+          {
+            "value" =>  {
+              "tierStem" =>  interval[:tier],
+              "priceTierEffectiveDate" =>  interval[:begin_date],
+              "priceTierEndDate" =>  interval[:end_date],
+              "country" =>  interval[:country] || "WW",
+              "grandfathered" =>  interval[:grandfathered]
+            }
+          }
+        end
+      end
+
+      if subscription_price_target
+        pricing_calculator = iap_subscription_pricing_target(app_id: app_id, purchase_id: purchase_id, currency: subscription_price_target[:currency], tier: subscription_price_target[:tier])
+        intervals_array = pricing_calculator.map do |language_code, value|
+          grandfathered = pricing_intervals
+            .find { |interval| interval[:country] == language_code }[:grandfathered].clone ||
+            { "value": "FUTURE_NONE" }
+          {
+            "value" => {
+              "tierStem" => value["tierStem"],
+              "priceTierEffectiveDate" => value["priceTierEffectiveDate"],
+              "priceTierEndDate" => value["priceTierEndDate"],
+              "country" => language_code,
+              "grandfathered" => grandfathered
+            }
+          }
+        end
+      end
+
+      intervals_array
+    end
+
     def price_tier(app_id)
       r = request(:get, "ra/apps/#{app_id}/pricing/intervals")
       data = parse_response(r, 'data')
