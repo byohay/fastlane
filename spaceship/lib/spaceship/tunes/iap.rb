@@ -61,8 +61,8 @@ module Spaceship
                   pricing_intervals: nil,
                   family_id: nil,
                   subscription_free_trial: nil,
-                  subscription_duration: nil)
-
+                  subscription_duration: nil,
+                  subscription_price_target: nil)
         client.create_iap!(app_id: self.application.apple_id,
                            type: type,
                            versions: versions,
@@ -78,10 +78,11 @@ module Spaceship
 
         # Update the price for an auto-renewable subscription.
         if (type == Spaceship::Tunes::IAPType::RECURRING)
-            product = find(product_id).edit
-            client.update_recurring_iap_price!(app_id: self.application.apple_id,
-                                               purchase_id: product.purchase_id,
-                                               pricing_intervals: pricing_intervals)
+          product = find(product_id).edit
+          intervals_array = client.transform_intervals_array(application.apple_id, product.purchase_id, pricing_intervals, subscription_price_target)
+          client.update_recurring_iap_price!(app_id: self.application.apple_id,
+                                             purchase_id: product.purchase_id,
+                                             pricing_intervals: intervals_array)
         end
       end
 
