@@ -61,8 +61,8 @@ module Spaceship
                   pricing_intervals: nil,
                   family_id: nil,
                   subscription_free_trial: nil,
-                  subscription_duration: nil)
-
+                  subscription_duration: nil,
+                  subscription_price_target: nil)
         client.create_iap!(app_id: self.application.apple_id,
                            type: type,
                            versions: versions,
@@ -77,14 +77,15 @@ module Spaceship
                            subscription_free_trial: subscription_free_trial)
 
         # Update pricing for a recurring subscription.
-        if type == Spaceship::Tunes::IAPType::RECURRING && pricing_intervals
+        if type == Spaceship::Tunes::IAPType::RECURRING && (pricing_intervals || subscription_price_target)
           # There are cases where the product that was just created is not immediately found,
           # and in order to update its pricing the purchase_id is needed. Therefore polling is done
           # until it is found.
           product = find(product_id) until product
+          intervals_array = client.transform_intervals_array(application.apple_id, product.purchase_id, pricing_intervals, subscription_price_target)
           client.update_recurring_iap_pricing!(app_id: self.application.apple_id,
                                                purchase_id: product.purchase_id,
-                                               pricing_intervals: pricing_intervals)
+                                               pricing_intervals: intervals_array)
         end
       end
 

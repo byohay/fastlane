@@ -161,37 +161,8 @@ module Spaceship
         raw_data.set(["versions"], [{ reviewNotes: { value: @review_notes }, contentHosting: raw_data['versions'].first['contentHosting'], "details" => { "value" => versions_array }, id: raw_data["versions"].first["id"], reviewScreenshot: { "value" => review_screenshot } }])
 
         # transform pricingDetails
-        intervals_array = []
-        pricing_intervals.each do |interval|
-          intervals_array << {
-            "value" =>  {
-              "tierStem" =>  interval[:tier],
-              "priceTierEffectiveDate" =>  interval[:begin_date],
-              "priceTierEndDate" =>  interval[:end_date],
-              "country" =>  interval[:country] || "WW",
-              "grandfathered" =>  interval[:grandfathered]
-            }
-          }
-        end
-
-        if subscription_price_target
-          intervals_array = []
-          pricing_calculator = client.iap_subscription_pricing_target(app_id: application.apple_id, purchase_id: purchase_id, currency: subscription_price_target[:currency], tier: subscription_price_target[:tier])
-          pricing_calculator.each do |language_code, value|
-            intervals_array << {
-              value: {
-                tierStem: value["tierStem"],
-                priceTierEffectiveDate: value["priceTierEffectiveDate"],
-                priceTierEndDate: value["priceTierEndDate"],
-                country: language_code,
-                grandfathered: { value: "FUTURE_NONE" }
-              }
-            }
-          end
-
-        end
-
-        raw_data.set(["pricingIntervals"], intervals_array)
+        raw_data.set(["pricingIntervals"], client.transform_intervals_array(application.apple_id, self.purchase_id,
+                                                                            pricing_intervals, subscription_price_target))
 
         if @review_screenshot
           # Upload Screenshot

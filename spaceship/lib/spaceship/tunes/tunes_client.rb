@@ -544,6 +544,41 @@ module Spaceship
       handle_itc_response(r.body)
     end
 
+    def transform_intervals_array(app_id = nil, purchase_id = nil, pricing_intervals = nil, subscription_price_target = nil)
+      intervals_array = []
+      if pricing_intervals
+        pricing_intervals.each do |interval|
+          intervals_array << {
+            "value" =>  {
+              "tierStem" =>  interval[:tier],
+              "priceTierEffectiveDate" =>  interval[:begin_date],
+              "priceTierEndDate" =>  interval[:end_date],
+              "country" =>  interval[:country] || "WW",
+              "grandfathered" =>  interval[:grandfathered]
+            }
+          }
+        end
+      end
+
+      if subscription_price_target
+        intervals_array = []
+        pricing_calculator = iap_subscription_pricing_target(app_id: app_id, purchase_id: purchase_id, currency: subscription_price_target[:currency], tier: subscription_price_target[:tier])
+        pricing_calculator.each do |language_code, value|
+          intervals_array << {
+            value: {
+              tierStem: value["tierStem"],
+              priceTierEffectiveDate: value["priceTierEffectiveDate"],
+              priceTierEndDate: value["priceTierEndDate"],
+              country: language_code,
+              grandfathered: { value: "FUTURE_NONE" }
+            }
+          }
+        end
+      end
+
+      return intervals_array
+    end
+
     def price_tier(app_id)
       r = request(:get, "ra/apps/#{app_id}/pricing/intervals")
       data = parse_response(r, 'data')
@@ -1166,12 +1201,12 @@ module Spaceship
         data['pricingIntervals'] = []
         pricing_intervals.each do |interval|
           data['pricingIntervals'] << {
-              value: {
-                  country: interval[:country] || "WW",
-                  tierStem: interval[:tier].to_s,
-                  priceTierEndDate: interval[:end_date],
-                  priceTierEffectiveDate: interval[:begin_date]
-                }
+            value: {
+                country: interval[:country] || "WW",
+                tierStem: interval[:tier].to_s,
+                priceTierEndDate: interval[:end_date],
+                priceTierEffectiveDate: interval[:begin_date]
+              }
           }
         end
       end
