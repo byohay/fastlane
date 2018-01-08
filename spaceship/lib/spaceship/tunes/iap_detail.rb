@@ -112,7 +112,7 @@ module Spaceship
       #    }
       #  ]
       def pricing_intervals
-        @pricing_intervals ||= raw_data["pricingIntervals"].map do |interval|
+        @pricing_intervals ||= (raw_data["pricingIntervals"] || []).map do |interval|
           {
             tier: interval["value"]["tierStem"].to_i,
             begin_date: interval["value"]["priceTierEffectiveDate"],
@@ -196,6 +196,12 @@ module Spaceship
         end
         # Update the Purchase
         client.update_iap!(app_id: application.apple_id, purchase_id: self.purchase_id, data: raw_data)
+
+        # Update the price for an auto-renewable subscription.
+        if (raw_data["addOnType"] == Spaceship::Tunes::IAPType::RECURRING)
+            client.update_recurring_iap_price!(app_id: application.apple_id, purchase_id: self.purchase_id,
+                                               pricing_intervals: raw_data["pricingIntervals"])
+        end
       end
 
       # Deletes In-App-Purchase

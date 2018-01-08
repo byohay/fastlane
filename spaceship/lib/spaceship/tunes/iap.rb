@@ -75,6 +75,14 @@ module Spaceship
                            family_id: family_id,
                            subscription_duration: subscription_duration,
                            subscription_free_trial: subscription_free_trial)
+
+        # Update the price for an auto-renewable subscription.
+        if (type == Spaceship::Tunes::IAPType::RECURRING)
+            product = find(product_id).edit
+            client.update_recurring_iap_price!(app_id: self.application.apple_id,
+                                               purchase_id: product.purchase_id,
+                                               pricing_intervals: pricing_intervals)
+        end
       end
 
       # find a specific product
