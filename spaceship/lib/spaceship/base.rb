@@ -28,6 +28,10 @@ module Spaceship
         @hash = hash || {}
       end
 
+      def dup
+        DataHash.new(@hash.dup)
+      end
+
       def key?(key)
         @hash.key?(key)
       end
