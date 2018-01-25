@@ -71,7 +71,8 @@ module Spaceship
                   family_id: nil,
                   subscription_free_trial: nil,
                   subscription_duration: nil,
-                  subscription_price_target: nil)
+                  subscription_price_target: nil,
+                  intro_offer_price_target: nil)
         client.create_iap!(app_id: self.application.apple_id,
                            type: type,
                            versions: versions,
@@ -100,6 +101,14 @@ module Spaceship
           client.update_recurring_iap_pricing!(app_id: self.application.apple_id,
                                                purchase_id: product.purchase_id,
                                                pricing_intervals: raw_pricing_intervals)
+
+          # Updating introductory offers.
+          intro_offers = client.intro_offers_with_pricing_target(self.application.apple_id,
+                                                                 product.purchase_id,
+                                                                 nil, intro_offer_price_target)
+          client.update_recurring_iap_intro_offers!(app_id: self.application.apple_id,
+                                                    purchase_id: product.purchase_id,
+                                                    intro_offers: intro_offers)
         end
       end
 
