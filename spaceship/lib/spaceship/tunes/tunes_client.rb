@@ -581,6 +581,36 @@ module Spaceship
       intervals_array
     end
 
+    def intro_offers_with_pricing_target(app_id = nil, purchase_id = nil, intro_offers = nil,
+                                         intro_offers_pricing_target = nil)
+      unless intro_offers_pricing_target
+        return intro_offers
+      end
+
+      intro_offers_with_target = []
+      # In order to get the language code of all the countries, even if the `:tier` is `nil`, a
+      # fake price tier is used (For example, it may happen when a trial introductory discount is
+      # requested)
+      pricing_calculator = iap_subscription_pricing_target(app_id: app_id, purchase_id: purchase_id,
+                                                           currency: intro_offers_pricing_target[:currency],
+                                                           tier: intro_offers_pricing_target[:tier] || 1)
+      pricing_calculator.each do |language_code, value|
+        intro_offers_with_target << {
+          value: {
+            tierStem: intro_offers_pricing_target[:tier] ? value["tierStem"] : nil,
+            startDate: intro_offers_pricing_target[:begin_date],
+            endDate: intro_offers_pricing_target[:end_date],
+            offerModeType: intro_offers_pricing_target[:offer_type],
+            durationType: intro_offers_pricing_target[:duration_type],
+            numOfPeriods: intro_offers_pricing_target[:num_of_periods],
+            country: language_code
+          }
+        }
+      end
+
+      intro_offers_with_target
+    end
+
     def price_tier(app_id)
       r = request(:get, "ra/apps/#{app_id}/pricing/intervals")
       data = parse_response(r, 'data')
@@ -1140,12 +1170,25 @@ module Spaceship
       end
     end
 
-    def update_recurring_iap_pricing!(app_id: nil, purchase_id: nil, pricing_intervals: nil)
+    def update_recurring_iap_subscriptions!(app_id: nil, purchase_id: nil, pricing_intervals: nil)
       with_tunes_retry do
         r = request(:post) do |req|
           pricing_data = {}
           req.url("ra/apps/#{app_id}/iaps/#{purchase_id}/pricing/subscriptions")
           pricing_data["subscriptions"] = pricing_intervals
+          req.body = pricing_data.to_json
+          req.headers['Content-Type'] = 'application/json'
+        end
+        handle_itc_response(r.body)
+      end
+    end
+
+    def update_recurring_iap_intro_offers!(app_id: nil, purchase_id: nil, intro_offers: nil)
+      with_tunes_retry do
+        r = request(:post) do |req|
+          pricing_data = {}
+          req.url("ra/apps/#{app_id}/iaps/#{purchase_id}/pricing/intro-offers")
+          pricing_data["introOffers"] = intro_offers
           req.body = pricing_data.to_json
           req.headers['Content-Type'] = 'application/json'
         end

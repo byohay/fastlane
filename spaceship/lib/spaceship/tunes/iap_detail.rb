@@ -38,6 +38,9 @@ module Spaceship
       # @return (Hash) subscription pricing target
       attr_accessor :subscription_price_target
 
+      # @return (Hash) intro offer price target
+      attr_accessor :intro_offer_price_target
+
       # @return (Hash) Relevant only for recurring subscriptions. Holds pricing related data, such
       # as subscription pricing, intro offers, etc.
       attr_accessor :raw_pricing_data
@@ -132,6 +135,43 @@ module Spaceship
         end
       end
 
+      def intro_offers=(value = [])
+        new_intro_offers = []
+        value.each do |current_intro_offer|
+          new_intro_offers << {
+            "value" =>   {
+              "tierStem" =>  current_intro_offer[:tier],
+              "startDate" =>  current_intro_offer[:begin_date],
+              "endDate" =>  current_intro_offer[:end_date],
+              "offerModeType" =>  current_intro_offer[:offer_type],
+              "durationType" => current_intro_offer[:duration_type],
+              "numOfPeriods" => current_intro_offer[:num_of_periods],
+              "country" => current_intro_offer[:country]
+            }
+          }
+        end
+
+        raw_data.set(["introOffers"], new_intro_offers)
+      end
+
+      def intro_offers
+        if raw_data["addOnType"] != Spaceship::Tunes::IAPType::RECURRING
+          return nil
+        end
+
+        (raw_pricing_data["introOffers"] || []).map do |intro_offer|
+          {
+            tier: intro_offer["value"]["tierStem"].to_i,
+            begin_date: intro_offer["value"]["startDate"],
+            end_date: intro_offer["value"]["endDate"],
+            offer_type: intro_offer["value"]["offerModeType"],
+            duration_type: intro_offer["value"]["durationType"],
+            num_of_periods: intro_offer["value"]["numOfPeriods"],
+            country: intro_offer["value"]["country"]
+          }
+        end
+      end
+
       # @return (String) Human Readable type of the purchase
       def type
         Tunes::IAPType.get_from_string(raw_data["addOnType"])
@@ -179,12 +219,19 @@ module Spaceship
           raw_data["versions"][0]["reviewScreenshot"] = screenshot_data
         end
         # Update the Purchase
-        client.update_iap!(app_id: application.apple_id, purchase_id: self.purchase_id, data: raw_data)
+        client.update_iap!(app_id: application.apple_id, purchase_id: self.purchase_id,
+                           data: raw_data)
 
         # Update pricing for a recurring subscription.
         if raw_data["addOnType"] == Spaceship::Tunes::IAPType::RECURRING
-          client.update_recurring_iap_pricing!(app_id: application.apple_id, purchase_id: self.purchase_id,
-                                               pricing_intervals: raw_data["pricingIntervals"])
+          raw_pricing_data["introOffers"] =
+            client.intro_offers_with_pricing_target(application.apple_id, self.purchase_id,
+                                                    raw_pricing_data["introOffers"],
+                                                    intro_offer_price_target)
+          client.update_recurring_iap_subscriptions!(app_id: application.apple_id, purchase_id: self.purchase_id,
+                                                     pricing_intervals: raw_data["pricingIntervals"])
+          client.update_recurring_iap_intro_offers!(app_id: application.apple_id, purchase_id: self.purchase_id,
+                                                    intro_offers: raw_pricing_data["introOffers"])
         end
       end
 
