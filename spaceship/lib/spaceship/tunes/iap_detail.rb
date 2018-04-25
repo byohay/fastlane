@@ -209,6 +209,14 @@ module Spaceship
           client.transform_to_raw_pricing_intervals(application.apple_id,
                                                     self.purchase_id, pricing_intervals,
                                                     subscription_price_target)
+
+        if raw_data["addOnType"] == Spaceship::Tunes::IAPType::RECURRING &&
+          (raw_data["status"] != "missingMetadata" && raw_data["status"] != "readyToSubmit") &&
+          raw_pricing_intervals =
+            merge_pricing_intervals_with_price_change(raw_data["pricingIntervals"],
+                                                      raw_pricing_intervals)
+        end
+
         raw_data.set(["pricingIntervals"], raw_pricing_intervals)
         @raw_pricing_data["subscriptions"] = raw_pricing_intervals if @raw_pricing_data
 
@@ -218,9 +226,13 @@ module Spaceship
           screenshot_data = client.upload_purchase_review_screenshot(application.apple_id, upload_file)
           raw_data["versions"][0]["reviewScreenshot"] = screenshot_data
         end
-        # Update the Purchase
-        client.update_iap!(app_id: application.apple_id, purchase_id: self.purchase_id,
-                           data: raw_data)
+
+        if raw_data["addOnType"] != Spaceship::Tunes::IAPType::RECURRING ||
+          (raw_data["status"] == "missingMetadata" || raw_data["status"] == "readyToSubmit")
+          # Update the Purchase
+          client.update_iap!(app_id: application.apple_id, purchase_id: self.purchase_id,
+                             data: raw_data)
+        end
 
         # Update pricing for a recurring subscription.
         if raw_data["addOnType"] == Spaceship::Tunes::IAPType::RECURRING
@@ -284,6 +296,47 @@ module Spaceship
             .pricing_info
             .find { |i| i.country_code == interval[:country] }
         end
+      end
+
+      # Assumes `new_pricing_intervals` contains all the country codes, because otherwise we might
+      # put a price change on one of the `old_pricing_intervals` without having a corresponding
+      # interval that replaces it.
+      # TODO: instead of modifying the values inplace, create a new has with
+      # `Marshal.load(Marshal.dump(hash))`
+      # TODO: the real solution is to require the grandfathered from outside if there is already a
+      # price.
+      # TODO: need to figure out what happens when there are multiple price changes: is the initial
+      # one still there?
+      def merge_pricing_intervals_with_price_change(old_pricing_intervals, new_pricing_intervals)
+        price_changes_intervals = new_pricing_intervals.map do |interval|
+          matching_country_interval = old_pricing_intervals.find do |old_interval|
+            old_interval["value"]["country"] == interval["value"]["country"] &&
+              (old_interval["value"]["priceTierEndDate"] ||
+              (!old_interval["value"]["priceTierEffectiveDate"] &&
+                !old_interval["value"]["priceTierEndDate"]))
+          end
+
+          interval["value"]["priceTierEffectiveDate"] = (matching_country_interval["value"] &&
+            matching_country_interval["value"]["priceTierEndDate"]) ||
+            (Date.today + 1).strftime("%Y-%m-%d")
+          interval["value"]["grandfathered"]["value"] = "FUTURE_NONE"
+
+          interval
+        end
+
+        modified_old_intervals = old_pricing_intervals
+          .select do |interval|
+            interval["value"]["priceTierEndDate"] ||
+              (!interval["value"]["priceTierEffectiveDate"] && !interval["value"]["priceTierEndDate"])
+          end
+          .map do |interval|
+            interval["value"]["grandfathered"]["value"] = "FUTURE_GF"
+            interval["value"]["priceTierEndDate"] = interval["value"]["priceTierEndDate"] ||
+              (Date.today + 1).strftime("%Y-%m-%d")
+            interval
+          end
+
+        price_changes_intervals + modified_old_intervals
       end
     end
   end
