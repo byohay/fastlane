@@ -50,6 +50,14 @@ module Spaceship
         return parsed_versions
       end
 
+      def set_product_family_rank(product_id, family_rank)
+        product = raw_data["activeAddOns"].find do |product|
+          product["productId"]["value"] == product_id
+        end
+
+        product["familyRank"]["value"] = family_rank
+      end
+
       # modify existing family
       def save!
         # Transform localization versions back to original format.
