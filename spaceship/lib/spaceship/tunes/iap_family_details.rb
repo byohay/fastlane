@@ -52,7 +52,9 @@ module Spaceship
           language = version["value"]["localeCode"]["value"]
           parsed_versions[language.to_sym] = {
             subscription_name: version["value"]["subscriptionName"]["value"],
-            name: version["value"]["name"]["value"]
+            name: version["value"]["name"]["value"],
+            status: version["value"]["status"],
+            id: version["value"]["id"]
           }
         end
         return parsed_versions
@@ -75,7 +77,9 @@ module Spaceship
                                "value" => {
                                  "subscriptionName" => { "value" => value[:subscription_name] },
                                  "name" => { "value" => value[:name] },
-                                 "localeCode" => { "value" => language_code.to_s }
+                                 "localeCode" => { "value" => language_code.to_s },
+                                 "status" => value[:status],
+                                 "id" => value[:id]
                                }
                             }
         end
