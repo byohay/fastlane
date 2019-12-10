@@ -31,7 +31,10 @@ module FastlaneCore
     private_constant :ERROR_REGEX, :WARNING_REGEX, :OUTPUT_REGEX, :RETURN_VALUE_REGEX, :SKIP_ERRORS
 
     def execute(command, hide_output)
-      return command if Helper.test?
+      if Helper.test?
+        yield(nil) if block_given?
+        return command
+      end
 
       @errors = []
       @warnings = []
@@ -87,7 +90,8 @@ module FastlaneCore
         UI.important("Although errors occurred during execution of iTMSTransporter, it returned success status.")
       end
 
-      exit_status.zero?
+      yield(@all_lines) if block_given?
+      return exit_status.zero?
     end
 
     private
@@ -150,7 +154,7 @@ module FastlaneCore
       # As there was no communication from Apple, we don't know if this is a temporary
       # server outage, or something they changed without giving a heads-up
       if ENV["DELIVER_ITMSTRANSPORTER_ADDITIONAL_UPLOAD_PARAMETERS"].to_s.length == 0
-        ENV["DELIVER_ITMSTRANSPORTER_ADDITIONAL_UPLOAD_PARAMETERS"] = "-t DAV"
+        ENV["DELIVER_ITMSTRANSPORTER_ADDITIONAL_UPLOAD_PARAMETERS"] = "-t DAV,Signiant"
       end
       return ENV["DELIVER_ITMSTRANSPORTER_ADDITIONAL_UPLOAD_PARAMETERS"]
     end
@@ -162,11 +166,10 @@ module FastlaneCore
       [
         '"' + Helper.transporter_path + '"',
         "-m upload",
-        "-u \"#{username}\"",
+        "-u #{username.shellescape}",
         "-p #{shell_escaped_password(password)}",
         "-f \"#{source}\"",
         additional_upload_parameters, # that's here, because the user might overwrite the -t option
-        "-t Signiant",
         "-k 100000",
         ("-WONoPause true" if Helper.windows?), # Windows only: process instantly returns instead of waiting for key press
         ("-itc_provider #{provider_short_name}" unless provider_short_name.to_s.empty?)
@@ -177,11 +180,20 @@ module FastlaneCore
       [
         '"' + Helper.transporter_path + '"',
         "-m lookupMetadata",
-        "-u \"#{username}\"",
+        "-u #{username.shellescape}",
         "-p #{shell_escaped_password(password)}",
         "-apple_id #{apple_id}",
         "-destination '#{destination}'",
         ("-itc_provider #{provider_short_name}" unless provider_short_name.to_s.empty?)
+      ].compact.join(' ')
+    end
+
+    def build_provider_ids_command(username, password)
+      [
+        '"' + Helper.transporter_path + '"',
+        '-m provider',
+        "-u \"#{username}\"",
+        "-p #{shell_escaped_password(password)}"
       ].compact.join(' ')
     end
 
@@ -203,21 +215,23 @@ module FastlaneCore
     private
 
     def shell_escaped_password(password)
-      # because the shell handles passwords with single-quotes incorrectly, use gsub to replace ShellEscape'd single-quotes of this form:
-      #    \'
-      # with a sequence that wraps the escaped single-quote in double-quotes:
-      #    '"\'"'
-      # this allows us to properly handle passwords with single-quotes in them
-      # we use the 'do' version of gsub, because two-param version interprets the replace text as a pattern and does the wrong thing
-      password = Shellwords.escape(password).gsub("\\'") do
-        "'\"\\'\"'"
+      password = password.shellescape
+      unless Helper.windows?
+        # because the shell handles passwords with single-quotes incorrectly, use `gsub` to replace `shellescape`'d single-quotes of this form:
+        #    \'
+        # with a sequence that wraps the escaped single-quote in double-quotes:
+        #    '"\'"'
+        # this allows us to properly handle passwords with single-quotes in them
+        # background: https://stackoverflow.com/questions/1250079/how-to-escape-single-quotes-within-single-quoted-strings/1250098#1250098
+        password = password.gsub("\\'") do
+          # we use the 'do' version of gsub, because two-param version interprets the replace text as a pattern and does the wrong thing
+          "'\"\\'\"'"
+        end
+
+        # wrap the fully-escaped password in single quotes, since the transporter expects a escaped password string (which must be single-quoted for the shell's benefit)
+        password = "'" + password + "'"
       end
-
-      # wrap the fully-escaped password in single quotes, since the transporter expects a escaped password string
-      # (which must be single-quoted for the shell's benefit [on non-Windows platforms])
-      password = "'" + password + "'" unless Helper.windows?
-
-      password
+      return password
     end
   end
 
@@ -240,7 +254,6 @@ module FastlaneCore
         "-p #{password.shellescape}",
         "-f #{source.shellescape}",
         additional_upload_parameters, # that's here, because the user might overwrite the -t option
-        '-t Signiant',
         '-k 100000',
         ("-itc_provider #{provider_short_name}" unless provider_short_name.to_s.empty?),
         '2>&1' # cause stderr to be written to stdout
@@ -264,6 +277,24 @@ module FastlaneCore
         "-apple_id #{apple_id.shellescape}",
         "-destination #{destination.shellescape}",
         ("-itc_provider #{provider_short_name}" unless provider_short_name.to_s.empty?),
+        '2>&1' # cause stderr to be written to stdout
+      ].compact.join(' ')
+    end
+
+    def build_provider_ids_command(username, password)
+      [
+        Helper.transporter_java_executable_path.shellescape,
+        "-Djava.ext.dirs=#{Helper.transporter_java_ext_dir.shellescape}",
+        '-XX:NewSize=2m',
+        '-Xms32m',
+        '-Xmx1024m',
+        '-Xms1024m',
+        '-Djava.awt.headless=true',
+        '-Dsun.net.http.retryPost=false',
+        java_code_option,
+        '-m provider',
+        "-u #{username.shellescape}",
+        "-p #{password.shellescape}",
         '2>&1' # cause stderr to be written to stdout
       ].compact.join(' ')
     end
@@ -295,6 +326,8 @@ module FastlaneCore
   end
 
   class ItunesTransporter
+    # Matches a line in the provider table: "12  Initech Systems Inc     LG89CQY559"
+    PROVIDER_REGEX = /^\d+\s{2,}.+\s{2,}[^\s]+$/
     TWO_STEP_HOST_PREFIX = "deliver.appspecific"
 
     # This will be called from the Deliverfile, and disables the logging of the transporter output
@@ -399,6 +432,21 @@ module FastlaneCore
       result
     end
 
+    def provider_ids
+      command = @transporter_executor.build_provider_ids_command(@user, @password)
+      UI.verbose(@transporter_executor.build_provider_ids_command(@user, 'YourPassword'))
+      lines = []
+      begin
+        result = @transporter_executor.execute(command, ItunesTransporter.hide_transporter_output?) { |xs| lines = xs }
+        return result if Helper.test?
+      rescue TransporterRequiresApplicationSpecificPasswordError => ex
+        handle_two_step_failure(ex)
+        return provider_ids
+      end
+
+      lines.map { |line| provider_pair(line) }.compact.to_h
+    end
+
     private
 
     TWO_FACTOR_ENV_VARIABLE = "FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD"
@@ -459,6 +507,12 @@ module FastlaneCore
 
     def handle_error(password)
       @transporter_executor.handle_error(password)
+    end
+
+    def provider_pair(line)
+      line = line.strip
+      return nil unless line =~ PROVIDER_REGEX
+      line.split(/\s{2,}/).drop(1)
     end
   end
 end

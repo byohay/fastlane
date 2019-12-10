@@ -55,10 +55,13 @@ module Snapshot
       Fixes::HardwareKeyboardFix.patch
 
       device_types.each do |type|
-        if launcher_config.erase_simulator || launcher_config.localize_simulator
+        if launcher_config.erase_simulator || launcher_config.localize_simulator || !launcher_config.dark_mode.nil?
           erase_simulator(type)
           if launcher_config.localize_simulator
             localize_simulator(type, language, locale)
+          end
+          unless launcher_config.dark_mode.nil?
+            interface_style(type, launcher_config.dark_mode)
           end
         elsif launcher_config.reinstall_app
           # no need to reinstall if device has been erased
@@ -95,15 +98,10 @@ module Snapshot
     end
 
     def uninstall_app(device_type)
-      UI.verbose("Uninstalling app '#{launcher_config.app_identifier}' from #{device_type}...")
       launcher_config.app_identifier ||= UI.input("App Identifier: ")
       device_udid = TestCommandGenerator.device_udid(device_type)
 
-      UI.message("Launch Simulator #{device_type}")
-      Helper.backticks("xcrun instruments -w #{device_udid} &> /dev/null")
-
-      UI.message("Uninstall application #{launcher_config.app_identifier}")
-      Helper.backticks("xcrun simctl uninstall #{device_udid} #{launcher_config.app_identifier} &> /dev/null")
+      FastlaneCore::Simulator.uninstall_app(launcher_config.app_identifier, device_type, device_udid)
     end
 
     def erase_simulator(device_type)
@@ -125,6 +123,18 @@ module Snapshot
         }
         UI.message("Localizing #{device_type} (AppleLocale=#{locale} AppleLanguages=[#{language}])")
         plist_path = "#{ENV['HOME']}/Library/Developer/CoreSimulator/Devices/#{device_udid}/data/Library/Preferences/.GlobalPreferences.plist"
+        File.write(plist_path, Plist::Emit.dump(plist))
+      end
+    end
+
+    def interface_style(device_type, dark_mode)
+      device_udid = TestCommandGenerator.device_udid(device_type)
+      if device_udid
+        plist = {
+          UserInterfaceStyleMode: (dark_mode ? 2 : 1)
+        }
+        UI.message("Setting interface style #{device_type} (UserInterfaceStyleMode=#{dark_mode})")
+        plist_path = "#{ENV['HOME']}/Library/Developer/CoreSimulator/Devices/#{device_udid}/data/Library/Preferences/com.apple.uikitservices.userInterfaceStyleMode.plist"
         File.write(plist_path, Plist::Emit.dump(plist))
       end
     end
